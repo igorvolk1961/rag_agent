@@ -1,214 +1,232 @@
 """
-Vector store implementation
+Vector store implementation using LangChain
 """
 
 import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-import numpy as np
+
+from langchain_community.vectorstores import Chroma, FAISS
+from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStore
+from langchain_core.embeddings import Embeddings
 
 from ..models.schemas import Chunk
 
 
-class VectorStore:
-    """Vector store for storing and retrieving document embeddings"""
-    
-    def __init__(self, store_type: str = "chroma", store_path: Optional[Path] = None):
+class VectorStoreManager:
+    """Vector store manager using LangChain vector stores"""
+
+    def __init__(self, store_type: str = "chroma", store_path: Optional[Path] = None,
+                 embeddings: Optional[Embeddings] = None, collection_name: str = "rag_documents"):
         self.store_type = store_type
         self.store_path = store_path or Path("data/vector_store")
+        self.collection_name = collection_name
+        self.embeddings = embeddings
         self.logger = logging.getLogger(__name__)
-        
+
         # Initialize store
-        if store_type == "chroma":
-            self._init_chroma()
-        elif store_type == "faiss":
-            self._init_faiss()
-        else:
-            raise ValueError(f"Unsupported vector store type: {store_type}")
-    
-    def _init_chroma(self):
+        self.vector_store = self._init_vector_store()
+
+    def _init_vector_store(self) -> VectorStore:
+        """Initialize LangChain vector store"""
+        try:
+            if self.store_type == "chroma":
+                return self._init_chroma()
+            elif self.store_type == "faiss":
+                return self._init_faiss()
+            else:
+                raise ValueError(f"Unsupported vector store type: {self.store_type}")
+        except Exception as e:
+            self.logger.error(f"Error initializing vector store: {e}")
+            raise
+
+    def _init_chroma(self) -> Chroma:
         """Initialize ChromaDB vector store"""
         try:
-            import chromadb
-            from chromadb.config import Settings
-            
             self.store_path.mkdir(parents=True, exist_ok=True)
-            
-            self.client = chromadb.PersistentClient(
-                path=str(self.store_path),
-                settings=Settings(anonymized_telemetry=False)
+
+            vector_store = Chroma(
+                persist_directory=str(self.store_path),
+                collection_name=self.collection_name,
+                embedding_function=self.embeddings
             )
-            
-            self.collection = self.client.get_or_create_collection(
-                name="rag_documents",
-                metadata={"description": "RAG Agent document collection"}
-            )
-            
-            self.logger.info("Initialized ChromaDB vector store")
-            
+
+            self.logger.info("Initialized ChromaDB vector store with LangChain")
+            return vector_store
+
         except ImportError:
             raise ImportError("chromadb is required. Install with: pip install chromadb")
         except Exception as e:
             self.logger.error(f"Error initializing ChromaDB: {e}")
             raise
-    
-    def _init_faiss(self):
+
+    def _init_faiss(self) -> FAISS:
         """Initialize FAISS vector store"""
         try:
-            import faiss
-            
             self.store_path.mkdir(parents=True, exist_ok=True)
-            self.index = None
-            self.chunks = []
-            self.embeddings = []
-            
-            self.logger.info("Initialized FAISS vector store")
-            
+
+            # Create empty FAISS store
+            vector_store = FAISS.from_texts(
+                texts=["dummy"],  # FAISS requires at least one document
+                embedding=self.embeddings
+            )
+
+            # Remove dummy document
+            vector_store.delete([vector_store.index_to_docstore_id[0]])
+
+            self.logger.info("Initialized FAISS vector store with LangChain")
+            return vector_store
+
         except ImportError:
             raise ImportError("faiss-cpu is required. Install with: pip install faiss-cpu")
         except Exception as e:
             self.logger.error(f"Error initializing FAISS: {e}")
             raise
-    
-    def add_chunks(self, chunks: List[Chunk], embeddings: List[List[float]]) -> None:
-        """Add chunks with embeddings to the vector store"""
-        if self.store_type == "chroma":
-            self._add_chunks_chroma(chunks, embeddings)
-        elif self.store_type == "faiss":
-            self._add_chunks_faiss(chunks, embeddings)
-    
-    def _add_chunks_chroma(self, chunks: List[Chunk], embeddings: List[List[float]]) -> None:
-        """Add chunks to ChromaDB"""
+
+    def add_chunks(self, chunks: List[Chunk], embeddings: Optional[List[List[float]]] = None) -> None:
+        """Add chunks to the vector store"""
         try:
-            ids = [chunk.id for chunk in chunks]
-            texts = [chunk.content for chunk in chunks]
-            metadatas = [chunk.metadata for chunk in chunks]
-            
-            self.collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                documents=texts,
-                metadatas=metadatas
-            )
-            
-            self.logger.info(f"Added {len(chunks)} chunks to ChromaDB")
-            
+            # Convert chunks to LangChain Documents
+            documents = []
+            for chunk in chunks:
+                doc = Document(
+                    page_content=chunk.content,
+                    metadata={
+                        "id": chunk.id,
+                        "document_id": chunk.document_id,
+                        "start_pos": chunk.start_pos,
+                        "end_pos": chunk.end_pos,
+                        **chunk.metadata
+                    }
+                )
+                documents.append(doc)
+
+            # Add documents to vector store
+            if self.store_type == "chroma":
+                self.vector_store.add_documents(documents)
+            elif self.store_type == "faiss":
+                self.vector_store.add_documents(documents)
+
+            self.logger.info(f"Added {len(chunks)} chunks to {self.store_type} vector store")
+
         except Exception as e:
-            self.logger.error(f"Error adding chunks to ChromaDB: {e}")
+            self.logger.error(f"Error adding chunks to vector store: {e}")
             raise
-    
-    def _add_chunks_faiss(self, chunks: List[Chunk], embeddings: List[List[float]]) -> None:
-        """Add chunks to FAISS"""
-        try:
-            import faiss
-            
-            embeddings_array = np.array(embeddings).astype('float32')
-            
-            if self.index is None:
-                dimension = embeddings_array.shape[1]
-                self.index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
-            
-            # Normalize embeddings for cosine similarity
-            faiss.normalize_L2(embeddings_array)
-            
-            self.index.add(embeddings_array)
-            self.chunks.extend(chunks)
-            self.embeddings.extend(embeddings)
-            
-            # Save index
-            faiss.write_index(self.index, str(self.store_path / "faiss_index.bin"))
-            
-            self.logger.info(f"Added {len(chunks)} chunks to FAISS")
-            
-        except Exception as e:
-            self.logger.error(f"Error adding chunks to FAISS: {e}")
-            raise
-    
-    def search(self, query_embedding: List[float], top_k: int = 5) -> List[Chunk]:
+
+    def search(self, query: str, top_k: int = 5) -> List[Chunk]:
         """Search for similar chunks"""
-        if self.store_type == "chroma":
-            return self._search_chroma(query_embedding, top_k)
-        elif self.store_type == "faiss":
-            return self._search_faiss(query_embedding, top_k)
-    
-    def _search_chroma(self, query_embedding: List[float], top_k: int) -> List[Chunk]:
-        """Search in ChromaDB"""
         try:
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k
-            )
-            
+            # Search using LangChain vector store
+            docs = self.vector_store.similarity_search(query, k=top_k)
+
+            # Convert back to Chunk objects
             chunks = []
-            for i in range(len(results['ids'][0])):
-                chunk_id = results['ids'][0][i]
-                content = results['documents'][0][i]
-                metadata = results['metadatas'][0][i]
-                
+            for doc in docs:
                 chunk = Chunk(
-                    id=chunk_id,
-                    document_id=metadata.get('document_id', ''),
-                    content=content,
-                    start_pos=0,
-                    end_pos=len(content),
-                    metadata=metadata
+                    id=doc.metadata.get("id", ""),
+                    document_id=doc.metadata.get("document_id", ""),
+                    content=doc.page_content,
+                    start_pos=doc.metadata.get("start_pos", 0),
+                    end_pos=doc.metadata.get("end_pos", len(doc.page_content)),
+                    metadata=doc.metadata
                 )
                 chunks.append(chunk)
-            
+
             return chunks
-            
+
         except Exception as e:
-            self.logger.error(f"Error searching ChromaDB: {e}")
+            self.logger.error(f"Error searching vector store: {e}")
             return []
-    
-    def _search_faiss(self, query_embedding: List[float], top_k: int) -> List[Chunk]:
-        """Search in FAISS"""
+
+    def search_with_scores(self, query: str, top_k: int = 5) -> List[tuple]:
+        """Search for similar chunks with similarity scores"""
         try:
-            import faiss
-            
-            if self.index is None:
-                return []
-            
-            query_array = np.array([query_embedding]).astype('float32')
-            faiss.normalize_L2(query_array)
-            
-            scores, indices = self.index.search(query_array, top_k)
-            
-            chunks = []
-            for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
-                if idx < len(self.chunks):
-                    chunk = self.chunks[idx]
-                    chunk.metadata['similarity_score'] = float(score)
-                    chunks.append(chunk)
-            
-            return chunks
-            
+            # Search with scores
+            docs_with_scores = self.vector_store.similarity_search_with_score(query, k=top_k)
+
+            # Convert to (chunk, score) tuples
+            results = []
+            for doc, score in docs_with_scores:
+                chunk = Chunk(
+                    id=doc.metadata.get("id", ""),
+                    document_id=doc.metadata.get("document_id", ""),
+                    content=doc.page_content,
+                    start_pos=doc.metadata.get("start_pos", 0),
+                    end_pos=doc.metadata.get("end_pos", len(doc.page_content)),
+                    metadata=doc.metadata
+                )
+                results.append((chunk, score))
+
+            return results
+
         except Exception as e:
-            self.logger.error(f"Error searching FAISS: {e}")
+            self.logger.error(f"Error searching vector store with scores: {e}")
             return []
-    
+
     def get_document_count(self) -> int:
         """Get total number of documents"""
-        if self.store_type == "chroma":
-            return self.collection.count()
-        elif self.store_type == "faiss":
-            return len(set(chunk.document_id for chunk in self.chunks))
-    
+        try:
+            if self.store_type == "chroma":
+                return self.vector_store._collection.count()
+            elif self.store_type == "faiss":
+                return len(self.vector_store.docstore._dict)
+            return 0
+        except Exception as e:
+            self.logger.error(f"Error getting document count: {e}")
+            return 0
+
     def get_chunk_count(self) -> int:
         """Get total number of chunks"""
-        if self.store_type == "chroma":
-            return self.collection.count()
-        elif self.store_type == "faiss":
-            return len(self.chunks)
-    
+        return self.get_document_count()
+
     def clear(self) -> None:
         """Clear all data from the vector store"""
-        if self.store_type == "chroma":
-            self.client.delete_collection("rag_documents")
-            self.collection = self.client.create_collection("rag_documents")
-        elif self.store_type == "faiss":
-            self.index = None
-            self.chunks = []
-            self.embeddings = []
-        
-        self.logger.info("Cleared vector store")
+        try:
+            if self.store_type == "chroma":
+                # Delete and recreate collection
+                self.vector_store._client.delete_collection(self.collection_name)
+                self.vector_store = self._init_chroma()
+            elif self.store_type == "faiss":
+                # Create new empty FAISS store
+                self.vector_store = self._init_faiss()
+
+            self.logger.info("Cleared vector store")
+
+        except Exception as e:
+            self.logger.error(f"Error clearing vector store: {e}")
+            raise
+
+    def save(self) -> None:
+        """Save vector store to disk"""
+        try:
+            if self.store_type == "chroma":
+                # Chroma auto-saves
+                pass
+            elif self.store_type == "faiss":
+                self.vector_store.save_local(str(self.store_path))
+
+            self.logger.info("Saved vector store")
+
+        except Exception as e:
+            self.logger.error(f"Error saving vector store: {e}")
+            raise
+
+    def load(self) -> None:
+        """Load vector store from disk"""
+        try:
+            if self.store_type == "faiss":
+                self.vector_store = FAISS.load_local(
+                    str(self.store_path),
+                    self.embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                self.logger.info("Loaded FAISS vector store from disk")
+
+        except Exception as e:
+            self.logger.error(f"Error loading vector store: {e}")
+            raise
+
+    def get_langchain_vector_store(self) -> VectorStore:
+        """Get the underlying LangChain vector store"""
+        return self.vector_store
