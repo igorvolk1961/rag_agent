@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     huggingface_api_key: Optional[str] = None
     openai_api_base: Optional[str] = None
-    deepseek_api_key: Optional[str] = "sk-163567b8e043481bb97dd4cbbc3a965b"
+    deepseek_api_key: Optional[str] = None
     deepseek_api_base: Optional[str] = None  # Use official endpoint
 
     # LangChain specific settings
