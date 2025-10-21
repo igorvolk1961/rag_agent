@@ -24,9 +24,20 @@ openai>=1.0.0
 PyPDF2>=3.0.0
 python-docx>=0.8.11
 
+# Smart Chanker integration
+# Add path to smart_chanker module
+# smart_chanker @ file:///F:/git/irs/smart_chanker
+
+# Smart Chanker dependencies
+unstructured[local-inference]>=0.10.0
+docx2python>=1.0.0
+beautifulsoup4>=4.12.0
+
 # Utilities
 python-dotenv>=1.0.0
 pathlib2>=2.3.7
+click>=8.1.0
+rich>=13.0.0
 
 # Development and testing
 pytest>=7.4.0

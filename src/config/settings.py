@@ -23,14 +23,21 @@ class Settings(BaseSettings):
     output_dir: Path = Path("data/output")
 
     # LangChain Model settings
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "BAAI/bge-m3"  # BGE-M3 for better multilingual support
+    # embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Old model (faster, smaller)
     embedding_type: Literal["huggingface", "openai"] = "huggingface"
     llm_model: str = "deepseek-chat"
 
-    # Text processing settings
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
+    # Text processing settings (для обычного чанкинга)
+    chunk_size: int = 1200  # Размер чанка для RecursiveCharacterTextSplitter
+    chunk_overlap: int = 240  # Перекрытие для RecursiveCharacterTextSplitter
     text_splitter_type: str = "recursive"  # recursive, character, token
+
+    # SmartChunker settings (иерархический семантический чанкинг)
+    use_smart_chunker: bool = False  # Enable SmartChunker for hierarchical chunking
+    smart_chunker_config_path: Optional[str] = "smart_chunker_config.json"  # Path to SmartChunker config file
+    smart_chunker_target_level: int = 3  # Target hierarchy level for chunking
+    smart_chunker_max_chunk_size: int = 1500  # Max chunk size for SmartChunker (НЕТ overlap!)
 
     # Vector store settings
     vector_store_type: Literal["chroma", "faiss"] = "chroma"

@@ -6,7 +6,10 @@ import logging
 from typing import List, Optional
 import numpy as np
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.embeddings import Embeddings
 
@@ -29,10 +32,25 @@ class Embedder:
                     openai_api_key=api_key
                 )
             else:  # huggingface
+                # Optimized settings for BGE-M3 on CPU
+                model_kwargs = {
+                    'device': 'cpu',
+                    'trust_remote_code': True  # Required for BGE-M3
+                }
+
+                encode_kwargs = {
+                    'normalize_embeddings': True,
+                    'batch_size': 32  # Smaller batch size for CPU
+                }
+
+                # Old settings for all-MiniLM-L6-v2 (commented out)
+                # model_kwargs = {'device': 'cpu'}
+                # encode_kwargs = {'normalize_embeddings': True}
+
                 self.embeddings = HuggingFaceEmbeddings(
                     model_name=model_name,
-                    model_kwargs={'device': 'cpu'},
-                    encode_kwargs={'normalize_embeddings': True}
+                    model_kwargs=model_kwargs,
+                    encode_kwargs=encode_kwargs
                 )
 
             self.logger.info(f"Loaded {embedding_type} embedding model: {model_name}")
@@ -66,7 +84,8 @@ class Embedder:
             return len(test_embedding)
         except Exception as e:
             self.logger.error(f"Error getting embedding dimension: {e}")
-            return 384  # Default for all-MiniLM-L6-v2
+            return 1024  # Default for BGE-M3
+            # return 384  # Default for all-MiniLM-L6-v2
 
     def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Calculate cosine similarity between two embeddings"""

@@ -1,0 +1,14 @@
+{
+    "hierarchical_chunking": {
+        "enabled": true,
+        "target_level": 3,
+        "max_chunk_size": 1500
+    },
+    "output": {
+        "save_docx2python_text": false,
+        "docx2python_text_suffix": "_docx2python.txt"
+    },
+    "table_processing": {
+        "max_paragraphs_after_table": 3
+    }
+}

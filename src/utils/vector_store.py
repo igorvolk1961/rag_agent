@@ -3,6 +3,7 @@ Vector store implementation using LangChain
 """
 
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 from langchain_core.embeddings import Embeddings
 
-from ..models.schemas import Chunk
+from models.schemas import Chunk
 
 
 class VectorStoreManager:
@@ -86,8 +87,12 @@ class VectorStoreManager:
 
     def add_chunks(self, chunks: List[Chunk], embeddings: Optional[List[List[float]]] = None) -> None:
         """Add chunks to the vector store"""
+        start_time = time.time()
+
         try:
             # Convert chunks to LangChain Documents
+            convert_start = time.time()
+            self.logger.info(f"🔄 Конвертация {len(chunks)} чанков в LangChain Documents...")
             documents = []
             for chunk in chunks:
                 doc = Document(
@@ -101,17 +106,25 @@ class VectorStoreManager:
                     }
                 )
                 documents.append(doc)
+            convert_time = time.time() - convert_start
+            self.logger.info(f"✅ Конвертация завершена за {convert_time:.2f}с")
 
             # Add documents to vector store
+            vector_start = time.time()
+            self.logger.info(f"🔄 Добавление {len(documents)} документов в {self.store_type} векторное хранилище...")
             if self.store_type == "chroma":
                 self.vector_store.add_documents(documents)
             elif self.store_type == "faiss":
                 self.vector_store.add_documents(documents)
+            vector_time = time.time() - vector_start
+            self.logger.info(f"✅ Документы добавлены в векторное хранилище за {vector_time:.2f}с")
 
-            self.logger.info(f"Added {len(chunks)} chunks to {self.store_type} vector store")
+            total_time = time.time() - start_time
+            self.logger.info(f"✅ Добавлено {len(chunks)} чанков в {self.store_type} векторное хранилище за {total_time:.2f}с")
 
         except Exception as e:
-            self.logger.error(f"Error adding chunks to vector store: {e}")
+            total_time = time.time() - start_time
+            self.logger.error(f"Error adding chunks to vector store after {total_time:.2f}с: {e}")
             raise
 
     def search(self, query: str, top_k: int = 5) -> List[Chunk]:
@@ -199,14 +212,19 @@ class VectorStoreManager:
 
     def save(self) -> None:
         """Save vector store to disk"""
+        start_time = time.time()
+
         try:
             if self.store_type == "chroma":
                 # Chroma auto-saves
+                self.logger.info("🔄 ChromaDB автоматически сохраняет данные...")
                 pass
             elif self.store_type == "faiss":
+                self.logger.info(f"🔄 Сохранение FAISS векторного хранилища в {self.store_path}...")
                 self.vector_store.save_local(str(self.store_path))
 
-            self.logger.info("Saved vector store")
+            save_time = time.time() - start_time
+            self.logger.info(f"✅ Векторное хранилище сохранено за {save_time:.2f}с")
 
         except Exception as e:
             self.logger.error(f"Error saving vector store: {e}")
